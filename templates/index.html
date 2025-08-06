@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>漫画批量下载器</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        :root {
+            --main-color: #4f8cff;
+            --main-color-dark: #357ae8;
+            --bg-color: #f4f7fa;
+            --card-bg: #fff;
+            --border-radius: 14px;
+            --shadow: 0 4px 24px #0001;
+            --text-color: #222;
+            --sub-text: #888;
+            --success: #4caf50;
+            --fail: #e74c3c;
+        }
+        body {
+            background: var(--bg-color);
+            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 480px;
+            margin: 48px auto 0 auto;
+            background: var(--card-bg);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            padding: 36px 32px 32px 32px;
+            position: relative;
+        }
+        h1 {
+            text-align: center;
+            color: var(--main-color);
+            font-size: 2.1em;
+            margin-bottom: 18px;
+            letter-spacing: 2px;
+        }
+        label {
+            display: block;
+            margin-top: 18px;
+            font-weight: 600;
+            color: var(--text-color);
+        }
+        input[type="file"], input[type="text"], input[type="number"], textarea {
+            width: 100%;
+            padding: 10px 12px;
+            margin-top: 7px;
+            border: 1.5px solid #e0e6ed;
+            border-radius: 6px;
+            font-size: 1em;
+            background: #f8fafc;
+            transition: border 0.2s;
+        }
+        input[type="file"] {
+            background: #fff;
+        }
+        input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
+            border-color: var(--main-color);
+            outline: none;
+        }
+        input[type="checkbox"] {
+            margin-right: 7px;
+            transform: scale(1.15);
+        }
+        button {
+            margin-top: 28px;
+            width: 100%;
+            padding: 13px 0;
+            background: linear-gradient(90deg, var(--main-color), var(--main-color-dark));
+            color: #fff;
+            border: none;
+            border-radius: 7px;
+            font-size: 1.15em;
+            font-weight: 600;
+            letter-spacing: 1px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px #4f8cff22;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        button:disabled {
+            background: #b5c8e6;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        .progress-bar {
+            width: 100%;
+            background: #e9eef5;
+            border-radius: 6px;
+            margin-top: 24px;
+            height: 18px;
+            box-shadow: 0 1px 4px #0001 inset;
+            overflow: hidden;
+        }
+        .progress-bar-inner {
+            height: 100%;
+            background: linear-gradient(90deg, var(--main-color), var(--main-color-dark));
+            border-radius: 6px;
+            width: 0;
+            transition: width 0.4s cubic-bezier(.4,2,.6,1);
+        }
+        .progress-text {
+            margin-top: 10px;
+            color: var(--main-color-dark);
+            font-weight: 500;
+            font-size: 1.05em;
+            letter-spacing: 1px;
+        }
+        .log-box {
+            background: #f8fafc;
+            border: 1.5px solid #e0e6ed;
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 18px;
+            height: 110px;
+            overflow-y: auto;
+            font-size: 13px;
+            color: #444;
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+        }
+        .help-text {
+            color: var(--sub-text);
+            font-size: 12px;
+            margin-top: 2px;
+        }
+        #downloadLink {
+            margin-top: 22px;
+            text-align: center;
+        }
+        #downloadLink a {
+            display: inline-block;
+            background: var(--success);
+            color: #fff;
+            padding: 8px 22px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1.08em;
+            box-shadow: 0 2px 8px #4caf5022;
+            transition: background 0.2s;
+        }
+        #downloadLink a:hover {
+            background: #388e3c;
+        }
+        #rcloneUploadBox {
+            display: none;
+            margin-top: 28px;
+            background: #f6faff;
+            border-radius: 8px;
+            padding: 18px 14px 10px 14px;
+            border: 1.5px solid #e0e6ed;
+        }
+        #rcloneUploadBtn {
+            margin-top: 10px;
+            background: linear-gradient(90deg, #00b894, #00cec9);
+            box-shadow: 0 2px 8px #00b89422;
+        }
+        #rcloneUploadBtn:disabled {
+            background: #b2f7e2;
+        }
+        #rcloneProgressText {
+            color: #00b894;
+            font-weight: 500;
+            margin-top: 8px;
+        }
+        .aes-config-bar {
+            margin: 8px 0 0 0;
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .aes-config-bar select {
+            width: 60%;
+            padding: 6px 8px;
+            border-radius: 5px;
+            border: 1.2px solid #e0e6ed;
+        }
+        .aes-config-bar button {
+            width: auto;
+            margin-top: 0;
+            padding: 6px 12px;
+            font-size: 1em;
+            box-shadow: none;
+            background: #e0e6ed;
+            color: #333;
+            border-radius: 5px;
+            border: none;
+            transition: background 0.2s;
+        }
+        .aes-config-bar button:hover {
+            background: #d0d8e6;
+        }
+        @media (max-width: 600px) {
+            .container { max-width: 98vw; padding: 18px 4vw 18px 4vw; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>📚 漫画批量下载器</h1>
+    <form id="uploadForm">
+        <label for="taskfile">上传任务文件 (.txt 或 .json)</label>
+        <input type="file" id="taskfile" name="taskfile" accept=".txt,.json" required>
+        <div class="help-text">支持原始漫画源的 .txt 或 .json 任务文件</div>
+
+        <label for="cookie">Cookie（可选）</label>
+        <input type="text" id="cookie" name="cookie" placeholder="如需登录请填写">
+
+        <label for="proxyList">代理列表（可选）</label>
+        <textarea id="proxyList" name="proxy_list" rows="2" placeholder="每行一个代理，如 socks5://127.0.0.1:1080"></textarea>
+        <div class="help-text">如需使用代理请填写，支持 socks5/http/https</div>
+
+        <label for="threadCount">下载线程数</label>
+        <input type="number" id="threadCount" name="thread_count" min="1" max="32" value="4" />
+        <div class="help-text">建议4-8，过高可能被封IP或影响服务器性能。</div>
+
+        <label style="margin-top: 14px;">
+            <input type="checkbox" id="packAfterDownload" name="pack_after_download" checked>
+            下载后自动打包为ZIP
+        </label>
+        <label>
+            <input type="checkbox" id="deleteAfterPack" name="delete_after_pack">
+            打包后删除原文件夹
+        </label>
+
+        <label for="aesKey">AES密钥 (可选)</label>
+        <input type="text" id="aesKey" name="aes_key" placeholder="16字节字符串或32位hex">
+
+        <label for="aesIv">AES IV (可选)</label>
+        <input type="text" id="aesIv" name="aes_iv" placeholder="16字节字符串或32位hex">
+
+        <label for="aesName">密钥名称 (可选)</label>
+        <input type="text" id="aesName" name="aes_name" placeholder="如：站点A密钥">
+
+        <div class="aes-config-bar">
+            <select id="aesConfigSelect">
+                <option value="">选择已保存的密钥配置</option>
+            </select>
+            <button type="button" id="saveAesConfigBtn">保存密钥</button>
+            <button type="button" id="delAesConfigBtn">删除</button>
+        </div>
+
+        <button type="submit" id="submitBtn">🚀 开始下载</button>
+        <button type="button" id="pauseBtn" style="margin-top:10px;display:none;">⏸️ 暂停</button>
+        <button type="button" id="resumeBtn" style="margin-top:10px;display:none;">▶️ 继续</button>
+    </form>
+
+    <div class="progress-bar">
+        <div class="progress-bar-inner" id="progressBar"></div>
+    </div>
+    <div class="progress-text" id="progressText"></div>
+    <div class="log-box" id="logBox"></div>
+    <div id="downloadLink"></div>
+
+    <div id="rcloneUploadBox">
+        <input type="text" id="remotePath" placeholder="rclone远程路径, 如 gdrive:漫画备份/" style="width:70%;padding:8px 10px;border-radius:5px;border:1.2px solid #e0e6ed;">
+        <button id="rcloneUploadBtn" disabled>☁️ 上传到网盘</button>
+        <div id="rcloneProgressText"></div>
+        <div class="log-box" id="rcloneLogBox"></div>
+    </div>
+</div>
+
+<script>
+const uploadForm = document.getElementById("uploadForm");
+const progressBar = document.getElementById("progressBar");
+const progressText = document.getElementById("progressText");
+const logBox = document.getElementById("logBox");
+const downloadLink = document.getElementById("downloadLink");
+const submitBtn = document.getElementById("submitBtn");
+const rcloneUploadBox = document.getElementById("rcloneUploadBox");
+const rcloneUploadBtn = document.getElementById("rcloneUploadBtn");
+const rcloneProgressText = document.getElementById("rcloneProgressText");
+const rcloneLogBox = document.getElementById("rcloneLogBox");
+const remotePathInput = document.getElementById("remotePath");
+const pauseBtn = document.getElementById("pauseBtn");
+const resumeBtn = document.getElementById("resumeBtn");
+
+let pollingInterval = null;
+let rclonePollingInterval = null;
+let lastZipFile = null;
+let currentTaskId = null;
+
+// AES密钥配置管理
+function loadAesConfigs() {
+    let configs = JSON.parse(localStorage.getItem("aesConfigs") || "[]");
+    return configs;
+}
+function saveAesConfigs(configs) {
+    localStorage.setItem("aesConfigs", JSON.stringify(configs));
+}
+function refreshAesConfigSelect() {
+    const select = document.getElementById("aesConfigSelect");
+    const configs = loadAesConfigs();
+    select.innerHTML = '<option value="">选择已保存的密钥配置</option>';
+    configs.forEach((cfg, idx) => {
+        let label = cfg.name ? cfg.name : `密钥${idx+1}`;
+        select.innerHTML += `<option value="${idx}">${label} (${cfg.key.slice(0,6)}...)</option>`;
+    });
+}
+document.getElementById("saveAesConfigBtn").onclick = function() {
+    const key = document.getElementById("aesKey").value.trim();
+    const iv = document.getElementById("aesIv").value.trim();
+    const name = document.getElementById("aesName").value.trim();
+    if (!key || !iv) { alert("请填写密钥和IV"); return; }
+    let configs = loadAesConfigs();
+    configs.push({name, key, iv});
+    saveAesConfigs(configs);
+    refreshAesConfigSelect();
+    alert("已保存！");
+};
+document.getElementById("delAesConfigBtn").onclick = function() {
+    const select = document.getElementById("aesConfigSelect");
+    if (!select.value) { alert("请选择要删除的配置"); return; }
+    let configs = loadAesConfigs();
+    configs.splice(Number(select.value), 1);
+    saveAesConfigs(configs);
+    refreshAesConfigSelect();
+};
+document.getElementById("aesConfigSelect").onchange = function() {
+    const idx = this.value;
+    if (!idx) return;
+    let configs = loadAesConfigs();
+    let cfg = configs[Number(idx)];
+    if (cfg) {
+        document.getElementById("aesKey").value = cfg.key;
+        document.getElementById("aesIv").value = cfg.iv;
+        document.getElementById("aesName").value = cfg.name || "";
+    }
+};
+// 页面加载时刷新
+refreshAesConfigSelect();
+
+uploadForm.addEventListener("submit", function(e) {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    pauseBtn.style.display = "inline-block";
+    resumeBtn.style.display = "none";
+    pauseBtn.disabled = false;
+    resumeBtn.disabled = false;
+    progressBar.style.width = "0";
+    progressText.textContent = "";
+    logBox.textContent = "";
+    downloadLink.innerHTML = "";
+    rcloneUploadBox.style.display = "none";
+    rcloneUploadBtn.disabled = true;
+    rcloneProgressText.textContent = "";
+    rcloneLogBox.textContent = "";
+    lastZipFile = null;
+
+    const formData = new FormData();
+    const fileInput = document.getElementById("taskfile");
+    if (!fileInput.files.length) {
+        alert("请选择任务文件！");
+        submitBtn.disabled = false;
+        pauseBtn.style.display = "none";
+        resumeBtn.style.display = "none";
+        return;
+    }
+    formData.append("taskfile", fileInput.files[0]);
+    formData.append("cookie", document.getElementById("cookie").value);
+    formData.append("proxy_list", document.getElementById("proxyList").value);
+    formData.append("pack_after_download", document.getElementById("packAfterDownload").checked);
+    formData.append("delete_after_pack", document.getElementById("deleteAfterPack").checked);
+    const threadCountInput = document.getElementById("threadCount");
+    formData.append('thread_count', threadCountInput ? threadCountInput.value : 4);
+
+    // 新增AES密钥和IV
+    formData.append("aes_key", document.getElementById("aesKey").value);
+    formData.append("aes_iv", document.getElementById("aesIv").value);
+
+    fetch("/upload", {
+        method: "POST",
+        body: formData
+    }).then(res => res.json()).then(data => {
+        if (data.error) {
+            alert(data.error);
+            submitBtn.disabled = false;
+            pauseBtn.style.display = "none";
+            resumeBtn.style.display = "none";
+            return;
+        }
+        currentTaskId = data.task_id;
+        pollStatus(data.task_id);
+    }).catch(err => {
+        alert("上传失败: " + err);
+        submitBtn.disabled = false;
+        pauseBtn.style.display = "none";
+        resumeBtn.style.display = "none";
+    });
+});
+
+pauseBtn.onclick = function() {
+    if (!currentTaskId) return;
+    pauseBtn.disabled = true;
+    fetch("/pause/" + currentTaskId, {method: "POST"})
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "paused") {
+                pauseBtn.style.display = "none";
+                resumeBtn.style.display = "inline-block";
+            } else {
+                pauseBtn.disabled = false;
+            }
+        });
+};
+resumeBtn.onclick = function() {
+    if (!currentTaskId) return;
+    resumeBtn.disabled = true;
+    fetch("/resume/" + currentTaskId, {method: "POST"})
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "resumed") {
+                resumeBtn.style.display = "none";
+                pauseBtn.style.display = "inline-block";
+            } else {
+                resumeBtn.disabled = false;
+            }
+        });
+};
+
+function pollStatus(taskId) {
+    pollingInterval = setInterval(() => {
+        fetch("/status/" + taskId).then(res => res.json()).then(data => {
+            if (data.error) {
+                progressText.textContent = data.error;
+                clearInterval(pollingInterval);
+                submitBtn.disabled = false;
+                pauseBtn.style.display = "none";
+                resumeBtn.style.display = "none";
+                return;
+            }
+            progressBar.style.width = (data.progress_percent || 0) + "%";
+            progressText.textContent = `进度: ${data.progress_current}/${data.progress_total} (${Math.round(data.progress_percent)}%) 状态: ${data.status}`;
+            logBox.textContent = (data.logs || []).slice(-10).join("\n");
+            logBox.scrollTop = logBox.scrollHeight;
+            if (data.status === "完成" && data.result && data.result[0] && data.result[0].zip) {
+                lastZipFile = data.result[0].zip;
+                downloadLink.innerHTML = `<a href="/download/${encodeURIComponent(data.result[0].zip)}" target="_blank">📦 下载ZIP包</a>`;
+                rcloneUploadBox.style.display = "block";
+                rcloneUploadBtn.disabled = false;
+                clearInterval(pollingInterval);
+                submitBtn.disabled = false;
+                pauseBtn.style.display = "none";
+                resumeBtn.style.display = "none";
+            } else if (["失败", "中断"].includes(data.status)) {
+                clearInterval(pollingInterval);
+                submitBtn.disabled = false;
+                pauseBtn.style.display = "none";
+                resumeBtn.style.display = "none";
+            } else if (data.status === "执行中") {
+                pauseBtn.style.display = "inline-block";
+                resumeBtn.style.display = "none";
+                pauseBtn.disabled = false;
+                resumeBtn.disabled = false;
+            } else if (data.status === "暂停中") {
+                pauseBtn.style.display = "none";
+                resumeBtn.style.display = "inline-block";
+                pauseBtn.disabled = false;
+                resumeBtn.disabled = false;
+            }
+        });
+    }, 1500);
+}
+
+rcloneUploadBtn.onclick = function() {
+    if (!lastZipFile) { alert("请先下载完成"); return; }
+    const remotePath = remotePathInput.value;
+    if (!remotePath) { alert("请填写rclone远程路径"); return; }
+    rcloneUploadBtn.disabled = true;
+    rcloneProgressText.textContent = "正在上传...";
+    rcloneLogBox.textContent = "";
+    fetch("/rclone_upload", {
+        method: "POST",
+        body: new URLSearchParams({
+            filename: lastZipFile,
+            remote_path: remotePath
+        })
+    }).then(res => res.json()).then(rdata => {
+        if (rdata.error) { alert(rdata.error); rcloneUploadBtn.disabled = false; return; }
+        pollRcloneStatus(rdata.task_id);
+    });
+};
+
+function pollRcloneStatus(taskId) {
+    rclonePollingInterval = setInterval(() => {
+        fetch("/rclone_status/" + taskId).then(res => res.json()).then(data => {
+            if (data.error) {
+                rcloneProgressText.textContent = data.error;
+                clearInterval(rclonePollingInterval);
+                rcloneUploadBtn.disabled = false;
+                return;
+            }
+            rcloneProgressText.textContent = `状态: ${data.status}`;
+            rcloneLogBox.textContent = (data.logs || []).slice(-10).join("\n");
+            rcloneLogBox.scrollTop = rcloneLogBox.scrollHeight;
+            if (data.status === "完成" || data.status === "失败") {
+                clearInterval(rclonePollingInterval);
+                rcloneUploadBtn.disabled = false;
+            }
+        });
+    }, 1500);
+}
+</script>
+</body>
+</html>

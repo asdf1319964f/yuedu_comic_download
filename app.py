@@ -117,6 +117,9 @@ def upload_file():
     file.save(save_path)
 
     cookie = request.form.get('cookie', '')
+    # START: 获取新的自定义Referer字段
+    custom_referer = request.form.get('custom_referer', '').strip()
+    # END: 获取新的自定义Referer字段
     proxy_list_text = request.form.get('proxy_list', '').strip()
     pack_after_download = request.form.get('pack_after_download', 'false') == 'true'
     delete_after_pack = request.form.get('delete_after_pack', 'false') == 'true'
@@ -153,7 +156,6 @@ def upload_file():
         task_statuses[task_id] = initial_status
     save_task_status(task_id, initial_status)
 
-    # 新增：为每个任务分配控制器
     download_controller = DownloadController()
     download_controllers[task_id] = download_controller
 
@@ -173,6 +175,7 @@ def upload_file():
             save_task_status(task_id, task_data) 
         
         try:
+            # START: 将custom_referer传递给下载函数
             result = process_task_file_with_progress(
                 save_path, 
                 app.config['OUTPUT_FOLDER'], 
@@ -183,8 +186,10 @@ def upload_file():
                 delete_after_pack,
                 aes_key, aes_iv,
                 max_workers=thread_count,
-                download_controller=download_controller  # 传入控制器
+                download_controller=download_controller,
+                custom_referer=custom_referer
             )
+            # END: 传递custom_referer
             with task_status_lock:
                 task_data = task_statuses[task_id]
                 task_data['status'] = '完成'

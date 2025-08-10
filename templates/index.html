@@ -209,6 +209,12 @@
         <label for="cookie">Cookie（可选）</label>
         <input type="text" id="cookie" name="cookie" placeholder="如需登录请填写">
 
+        <!-- START: 新增的自定义Referer输入框 -->
+        <label for="customReferer">自定义Referer (全局备用)</label>
+        <input type="text" id="customReferer" name="custom_referer" placeholder="如需指定全局Referer请填写">
+        <div class="help-text">当任务文件和图片链接本身都未提供Referer时，将使用此值。</div>
+        <!-- END: 新增部分 -->
+
         <label for="proxyList">代理列表（可选）</label>
         <textarea id="proxyList" name="proxy_list" rows="2" placeholder="每行一个代理，如 socks5://127.0.0.1:1080"></textarea>
         <div class="help-text">如需使用代理请填写，支持 socks5/http/https</div>
@@ -264,6 +270,7 @@
 </div>
 
 <script>
+// JavaScript部分无需任何修改，它会自动收集新添加的输入框数据
 const uploadForm = document.getElementById("uploadForm");
 const progressBar = document.getElementById("progressBar");
 const progressText = document.getElementById("progressText");
@@ -330,7 +337,6 @@ document.getElementById("aesConfigSelect").onchange = function() {
         document.getElementById("aesName").value = cfg.name || "";
     }
 };
-// 页面加载时刷新
 refreshAesConfigSelect();
 
 uploadForm.addEventListener("submit", function(e) {
@@ -350,7 +356,7 @@ uploadForm.addEventListener("submit", function(e) {
     rcloneLogBox.textContent = "";
     lastZipFile = null;
 
-    const formData = new FormData();
+    const formData = new FormData(uploadForm); // 使用 new FormData(formElement) 更简洁
     const fileInput = document.getElementById("taskfile");
     if (!fileInput.files.length) {
         alert("请选择任务文件！");
@@ -359,18 +365,7 @@ uploadForm.addEventListener("submit", function(e) {
         resumeBtn.style.display = "none";
         return;
     }
-    formData.append("taskfile", fileInput.files[0]);
-    formData.append("cookie", document.getElementById("cookie").value);
-    formData.append("proxy_list", document.getElementById("proxyList").value);
-    formData.append("pack_after_download", document.getElementById("packAfterDownload").checked);
-    formData.append("delete_after_pack", document.getElementById("deleteAfterPack").checked);
-    const threadCountInput = document.getElementById("threadCount");
-    formData.append('thread_count', threadCountInput ? threadCountInput.value : 4);
-
-    // 新增AES密钥和IV
-    formData.append("aes_key", document.getElementById("aesKey").value);
-    formData.append("aes_iv", document.getElementById("aesIv").value);
-
+   
     fetch("/upload", {
         method: "POST",
         body: formData

@@ -82,10 +82,11 @@ def parse_txt_task_file(txt_path):
             continue
         if is_img_line(line):
             url, referer, origin = parse_img_src(line)
-            final_referer = referer or global_referer
+            # 注意：这里我们不再决定最终的Referer
+            # 我们只把从图片链接解析出的header传递出去
             headers = {}
-            if final_referer:
-                headers['Referer'] = final_referer
+            if referer:
+                headers['Referer'] = referer
             if origin:
                 headers['Origin'] = origin
             image_tasks.append((url, headers, chapter_title))
@@ -145,7 +146,7 @@ class DownloadController:
 def process_task_file_with_progress(
     task_path, output_folder, headers, progress_callback, proxy_list=None,
     pack_after_download=True, delete_after_pack=False, aes_key=None, aes_iv=None,
-    max_workers=4, download_controller=None
+    max_workers=4, download_controller=None, custom_referer=None # <-- START: 添加 custom_referer 参数
 ):
     if task_path.lower().endswith(".json"):
         title, author, global_referer, image_tasks = parse_json_task_file(task_path)
@@ -172,8 +173,22 @@ def process_task_file_with_progress(
             ext = ".jpg"
         filename = f"{idx+1:03d}{ext}"
         save_path = os.path.join(chapter_dir, filename)
-        h = dict(headers)
-        h.update(headers_img)
+        
+        # START: 构造最终的 headers，并应用 Referer 优先级逻辑
+        h = dict(headers)      # 基础 headers (如 Cookie, User-Agent)
+        h.update(headers_img)  # 合并从图片链接中解析出的 headers
+
+        # 优先级: 图片自带 Referer > 文件全局 Referer > UI自定义 Referer
+        # 1. 检查 'Referer' 是否已经存在 (不区分大小写)
+        if 'Referer' not in h and 'referer' not in h:
+            # 2. 如果不存在，则使用文件全局 Referer
+            if global_referer:
+                h['Referer'] = global_referer
+            # 3. 如果还不存在，则使用UI上自定义的 Referer
+            elif custom_referer:
+                h['Referer'] = custom_referer
+        # END: headers 构造逻辑
+
         proxies = None
         if proxy_list:
             import random

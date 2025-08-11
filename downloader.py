@@ -1,3 +1,5 @@
+# --- START OF FILE downloader.py ---
+
 import os
 import re
 import json
@@ -7,9 +9,22 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from Crypto.Cipher import AES
 
+def sanitize_filename(filename):
+    """
+    净化文件名，移除或替换掉不适合在文件名或URL中使用的字符。
+    """
+    if not filename:
+        return "untitled"
+    # 移除非法字符
+    sanitized = re.sub(r'[\\/*?:"<>|]', "", filename)
+    # 将多个空格替换为单个空格
+    sanitized = re.sub(r'\s+', ' ', sanitized).strip()
+    return sanitized
+
 def aes_decrypt(data, key, iv):
     cipher = AES.new(key, AES.MODE_CBC, iv)
     decrypted = cipher.decrypt(data)
+    # PKCS7 unpadding
     pad_len = decrypted[-1]
     if pad_len > 0 and pad_len <= 16:
         decrypted = decrypted[:-pad_len]
@@ -65,7 +80,8 @@ def parse_img_src(src):
 def parse_txt_task_file(txt_path):
     with open(txt_path, "r", encoding="utf-8") as f:
         text = f.read()
-    title = os.path.splitext(os.path.basename(txt_path))[0]
+    raw_title = os.path.splitext(os.path.basename(txt_path))[0]
+    title = sanitize_filename(raw_title)
     author = "未知作者"
     m = re.search(r'作者[:：]\s*([^\n]+)', text)
     if m:
@@ -82,8 +98,6 @@ def parse_txt_task_file(txt_path):
             continue
         if is_img_line(line):
             url, referer, origin = parse_img_src(line)
-            # 注意：这里我们不再决定最终的Referer
-            # 我们只把从图片链接解析出的header传递出去
             headers = {}
             if referer:
                 headers['Referer'] = referer
@@ -91,18 +105,20 @@ def parse_txt_task_file(txt_path):
                 headers['Origin'] = origin
             image_tasks.append((url, headers, chapter_title))
         else:
-            chapter_title = line
+            chapter_title = sanitize_filename(line)
     return title, author, global_referer, image_tasks
 
 def parse_json_task_file(json_path):
     with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    title = data.get("title") or os.path.splitext(os.path.basename(json_path))[0]
+    raw_title = data.get("title") or os.path.splitext(os.path.basename(json_path))[0]
+    title = sanitize_filename(raw_title)
     author = data.get("author", "未知作者")
     global_referer = data.get("referer")
     image_tasks = []
     for chapter in data.get("chapters", []):
-        chapter_title = chapter.get("title", "第1章")
+        raw_chapter_title = chapter.get("title", "第1章")
+        chapter_title = sanitize_filename(raw_chapter_title)
         for img in chapter.get("images", []):
             url = img.get("url")
             headers = img.get("headers", {})
@@ -130,23 +146,20 @@ def download_image(url, save_path, headers, proxies=None, retry=3, aes_key=None,
 class DownloadController:
     def __init__(self):
         self._pause_event = threading.Event()
-        self._pause_event.set()  # 默认不暂停
-        self._stop_event = threading.Event()
-    def pause(self):
-        self._pause_event.clear()
-    def resume(self):
         self._pause_event.set()
-    def stop(self):
-        self._stop_event.set()
+        self._stop_event = threading.Event()
+    def pause(self): self._pause_event.clear()
+    def resume(self): self._pause_event.set()
+    def stop(self): self._stop_event.set()
     def check(self):
-        if self._stop_event.is_set():
-            raise Exception("任务被终止")
+        if self._stop_event.is_set(): raise Exception("任务被终止")
         self._pause_event.wait()
 
 def process_task_file_with_progress(
     task_path, output_folder, headers, progress_callback, proxy_list=None,
     pack_after_download=True, delete_after_pack=False, aes_key=None, aes_iv=None,
-    max_workers=4, download_controller=None, custom_referer=None # <-- START: 添加 custom_referer 参数
+    max_workers=4, download_controller=None, custom_referer=None,
+    redis_client=None
 ):
     if task_path.lower().endswith(".json"):
         title, author, global_referer, image_tasks = parse_json_task_file(task_path)
@@ -160,34 +173,45 @@ def process_task_file_with_progress(
     finished = [0]
     failed = []
 
-    def is_already_downloaded(save_path):
-        return os.path.exists(save_path) and os.path.getsize(save_path) > 0
+    REDIS_DOWNLOADED_URL_KEY_PREFIX = "comic_downloader:url:"
+
+    def is_url_already_downloaded(url):
+        if not redis_client:
+            return False
+        return redis_client.exists(f"{REDIS_DOWNLOADED_URL_KEY_PREFIX}{url}")
+
+    def mark_url_as_downloaded(url):
+        if not redis_client:
+            return
+        redis_client.set(f"{REDIS_DOWNLOADED_URL_KEY_PREFIX}{url}", "1", ex=90*24*60*60)
+
 
     def download_one(idx, url, headers_img, chapter_title):
         if download_controller:
             download_controller.check()
+
+        if is_url_already_downloaded(url):
+            with lock:
+                finished[0] += 1
+                progress_callback(finished[0], total, f"Redis记录已下载，跳过URL: {url[:50]}...")
+            return
+
         chapter_dir = os.path.join(book_dir, chapter_title)
         os.makedirs(chapter_dir, exist_ok=True)
+        
         ext = os.path.splitext(url)[1].split("?")[0]
         if not ext or len(ext) > 6:
             ext = ".jpg"
-        filename = f"{idx+1:03d}{ext}"
+        filename = f"{idx+1:04d}{ext}"
         save_path = os.path.join(chapter_dir, filename)
         
-        # START: 构造最终的 headers，并应用 Referer 优先级逻辑
-        h = dict(headers)      # 基础 headers (如 Cookie, User-Agent)
-        h.update(headers_img)  # 合并从图片链接中解析出的 headers
-
-        # 优先级: 图片自带 Referer > 文件全局 Referer > UI自定义 Referer
-        # 1. 检查 'Referer' 是否已经存在 (不区分大小写)
+        h = dict(headers)
+        h.update(headers_img)
         if 'Referer' not in h and 'referer' not in h:
-            # 2. 如果不存在，则使用文件全局 Referer
             if global_referer:
                 h['Referer'] = global_referer
-            # 3. 如果还不存在，则使用UI上自定义的 Referer
             elif custom_referer:
                 h['Referer'] = custom_referer
-        # END: headers 构造逻辑
 
         proxies = None
         if proxy_list:
@@ -195,12 +219,10 @@ def process_task_file_with_progress(
             proxy = random.choice(proxy_list)
             proxies = {"http": proxy, "https": proxy}
         try:
-            if is_already_downloaded(save_path):
-                with lock:
-                    finished[0] += 1
-                    progress_callback(finished[0], total, f"已存在，跳过: {chapter_title}/{filename}")
-                return
             download_image(url, save_path, h, proxies, aes_key=aes_key, aes_iv=aes_iv)
+            
+            mark_url_as_downloaded(url)
+
             with lock:
                 finished[0] += 1
                 progress_callback(finished[0], total, f"下载成功: {chapter_title}/{filename}")
@@ -210,7 +232,6 @@ def process_task_file_with_progress(
                 failed.append((idx, url, headers_img, chapter_title))
                 progress_callback(finished[0], total, f"下载失败: {chapter_title}/{filename} {e}")
 
-    # 先下载一遍，失败的收集起来
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = []
         for idx, (url, headers_img, chapter_title) in enumerate(image_tasks):
@@ -218,12 +239,11 @@ def process_task_file_with_progress(
         for f in as_completed(futures):
             pass
 
-    # 失败的统一重试，直到全部成功或达到最大重试轮数
-    max_retry_round = 1000
+    max_retry_round = 3
     retry_round = 1
     while failed and retry_round <= max_retry_round:
-        retry_failed = failed
-        failed = []
+        retry_failed = list(failed)
+        failed.clear()
         progress_callback(finished[0], total, f"第{retry_round}轮重试，剩余{len(retry_failed)}张")
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = []
@@ -233,12 +253,21 @@ def process_task_file_with_progress(
                 pass
         retry_round += 1
 
-    zip_name = f"{title}.zip"
-    zip_path = os.path.join(output_folder, zip_name)
-    if pack_after_download:
+    final_archive_name = f"{title}.cbz"
+    if pack_after_download and os.path.exists(book_dir):
         import shutil
-        shutil.make_archive(os.path.splitext(zip_path)[0], 'zip', book_dir)
+        archive_base_path = os.path.join(output_folder, title)
+        if os.path.exists(archive_base_path + ".zip"):
+            os.remove(archive_base_path + ".zip")
+        created_zip_file = shutil.make_archive(archive_base_path, 'zip', book_dir)
+        final_cbz_path = os.path.join(output_folder, final_archive_name)
+        if os.path.exists(final_cbz_path):
+            os.remove(final_cbz_path)
+        os.rename(created_zip_file, final_cbz_path)
         if delete_after_pack:
             shutil.rmtree(book_dir)
+            
     progress_callback(total, total, f"全部完成，失败{len(failed)}张")
-    return [{"zip": zip_name, "failed": [x[1] for x in failed]}]
+    return [{"zip": final_archive_name, "failed": [x[1] for x in failed]}]
+
+# --- END OF FILE downloader.py ---
